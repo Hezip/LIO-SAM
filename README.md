@@ -1,3 +1,27 @@
+A simple version of system that can relocalize in a built map is developed in this repository. The sysytem is bsed on LIO_SAM.
+The repository is developed based on the origional version of LIO-SAM in which the GPS is not fused.
+## Run the package
+1. Make sure the map should be saved in the right folder:
+```
+Firstly, you need to run LIO-SAM, and then save the map in the default folder
+```
+
+2. Run the launch file:
+```
+roslaunch lio_sam run_relocalize.launch
+```
+
+3. Play existing bag files:
+```
+rosbag play your-bag.bag
+```
+
+ -A video of the demonstration of the method can be found on [YouTube](https://youtu.be/PRsH8SpuSIc)
+ ## Notes
+
+  - **Initialization:** During the initialization stage, had better keep the robot still. Or if you play bags, fistly play the bag for about 0.5s, and then pause the bag until the initialization succeed. The initialization method requres you to give it initial guesses by hand on the the Rviz.
+
+******************************************************************************************************************************************************************
 # LIO-SAM
 
 **A real-time lidar-inertial odometry package. We strongly recommend the users read this document thoroughly and test the package with the provided dataset first. A video of the demonstration of the method can be found on [YouTube](https://www.youtube.com/watch?v=A0H8CoORZJU).**
@@ -90,14 +114,10 @@ The user needs to prepare the point cloud data in the correct format for cloud d
     - we need to set the readings of x-z acceleration and gyro negative to transform the IMU data in the lidar frame, which is indicated by "extrinsicRot" in "params.yaml." 
     - The transformation of attitude readings is slightly different. We rotate the attitude measurements by -90 degrees around "lidar-z" axis and get the corresponding roll, pitch, and yaw readings in the lidar frame. This transformation is indicated by "extrinsicRPY" in "params.yaml."
 
-  - **IMU debug**. It's strongly recommended that the user uncomment the debug lines in "imuHandler()" of "imageProjection.cpp" and test the output of the transformed IMU data. The user can rotate the sensor suite to check whether the readings correspond to the sensor's movement. A YouTube video that shows the corrected IMU data can be found [here (link to YouTube)](https://youtu.be/BOUK8LYQhHs).
-
+  - **IMU debug**. It's strongly recommended that the user uncomment the debug lines in "imuHandler()" of "imageProjection.cpp" and test the output of the transformed IMU data. The user can rotate the sensor suite to check whether the readings correspond to the sensor's movement.
 
 <p align='center'>
     <img src="./config/doc/imu-transform.png" alt="drawing" width="800"/>
-</p>
-<p align='center'>
-    <img src="./config/doc/imu-debug.gif" alt="drawing" width="800"/>
 </p>
 
 ## Sample datasets
@@ -204,7 +224,6 @@ Part of the code is adapted from [LeGO-LOAM](https://github.com/RobustFieldAuton
 ## TODO
 
   - [ ] Add loop closure visualization and fix potential bug
-  - [ ] **KNOWN ISSUE:** when loop closure happens or GPS factor is added, imuPreintegrtation will be reset. This will cause brief loss of updateInitialGuess in mapOptimization. If the sensor is moving or rotating fast, scan-matching will fail. A way to solve this is find a good initial guess replacement when imuPreintegrtation is reset.
 
 ## Acknowledgement
 

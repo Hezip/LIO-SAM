@@ -69,15 +69,15 @@ public:
         cloudHeader = msgIn->header; // new cloud header
         pcl::fromROSMsg(msgIn->cloud_deskewed, *extractedCloud); // new cloud for extraction
 
-        calculateSmoothness();
+        calculateSmoothness();//gc: calculate curvature
 
-        markOccludedPoints();
+        markOccludedPoints();//gc: check unstable points
 
-        extractFeatures();
+        extractFeatures();//gc: extract features
 
         publishFeatureCloud();
     }
-
+    //gc:
     void calculateSmoothness()
     {
         int cloudSize = extractedCloud->points.size();
@@ -130,6 +130,7 @@ public:
                 }
             }
             // parallel beam
+            //gc:points on local planar surfaces that are roughly parallel to laser beam
             float diff1 = std::abs(float(cloudInfo.pointRange[i-1] - cloudInfo.pointRange[i]));
             float diff2 = std::abs(float(cloudInfo.pointRange[i+1] - cloudInfo.pointRange[i]));
 
@@ -145,11 +146,11 @@ public:
 
         pcl::PointCloud<PointType>::Ptr surfaceCloudScan(new pcl::PointCloud<PointType>());
         pcl::PointCloud<PointType>::Ptr surfaceCloudScanDS(new pcl::PointCloud<PointType>());
-
+        //gc: for every ring
         for (int i = 0; i < N_SCAN; i++)
         {
             surfaceCloudScan->clear();
-
+            //gc: for every section
             for (int j = 0; j < 6; j++)
             {
 
@@ -230,7 +231,7 @@ public:
             }
 
             surfaceCloudScanDS->clear();
-            downSizeFilter.setInputCloud(surfaceCloudScan);
+            downSizeFilter.setInputCloud(surfaceCloudScan);//gc: only surface points should be down sample
             downSizeFilter.filter(*surfaceCloudScanDS);
 
             *surfaceCloud += *surfaceCloudScanDS;
@@ -250,8 +251,8 @@ public:
         // free cloud info memory
         freeCloudInfoMemory();
         // save newly extracted features
-        cloudInfo.cloud_corner  = publishCloud(&pubCornerPoints,  cornerCloud,  cloudHeader.stamp, lidarFrame);
-        cloudInfo.cloud_surface = publishCloud(&pubSurfacePoints, surfaceCloud, cloudHeader.stamp, lidarFrame);
+        cloudInfo.cloud_corner  = publishCloud(&pubCornerPoints,  cornerCloud,  cloudHeader.stamp, "base_link");
+        cloudInfo.cloud_surface = publishCloud(&pubSurfacePoints, surfaceCloud, cloudHeader.stamp, "base_link");
         // publish to mapOptimization
         pubLaserCloudInfo.publish(cloudInfo);
     }

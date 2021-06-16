@@ -74,8 +74,18 @@ public:
     gtsam::Pose3 imu2Lidar = gtsam::Pose3(gtsam::Rot3(1, 0, 0, 0), gtsam::Point3(-extTrans.x(), -extTrans.y(), -extTrans.z()));
     gtsam::Pose3 lidar2Imu = gtsam::Pose3(gtsam::Rot3(1, 0, 0, 0), gtsam::Point3(extTrans.x(), extTrans.y(), extTrans.z()));;
 
+    //added *****************************  by gc
+    ros::Subscriber subPoseOdomToMap;
+    geometry_msgs::PoseStamped poseOdomToMap;
+
+    //added *****************************  by gc
+
     IMUPreintegration()
     {
+        //added***********gc
+        subPoseOdomToMap = nh.subscribe<geometry_msgs::PoseStamped>("lio_sam/mapping/pose_odomTo_map", 1,&IMUPreintegration::odomToMapPoseHandler,      this, ros::TransportHints().tcpNoDelay());
+        //added***********gc
+
         subImu      = nh.subscribe<sensor_msgs::Imu>  (imuTopic,                   2000, &IMUPreintegration::imuHandler,      this, ros::TransportHints().tcpNoDelay());
         subOdometry = nh.subscribe<nav_msgs::Odometry>("lio_sam/mapping/odometry", 5,    &IMUPreintegration::odometryHandler, this, ros::TransportHints().tcpNoDelay());
 
@@ -97,8 +107,22 @@ public:
         noiseModelBetweenBias = (gtsam::Vector(6) << imuAccBiasN, imuAccBiasN, imuAccBiasN, imuGyrBiasN, imuGyrBiasN, imuGyrBiasN).finished();
         
         imuIntegratorImu_ = new gtsam::PreintegratedImuMeasurements(p, prior_imu_bias); // setting up the IMU integration for IMU message thread
-        imuIntegratorOpt_ = new gtsam::PreintegratedImuMeasurements(p, prior_imu_bias); // setting up the IMU integration for optimization        
+        imuIntegratorOpt_ = new gtsam::PreintegratedImuMeasurements(p, prior_imu_bias); // setting up the IMU integration for optimization
     }
+
+    void odomToMapPoseHandler(const geometry_msgs::PoseStamped::ConstPtr& poseOdomToMapmsg)
+    {
+        tf::Quaternion q_tem;
+        q_tem.setX(poseOdomToMapmsg->pose.orientation.x);
+        q_tem.setY(poseOdomToMapmsg->pose.orientation.y);
+        q_tem.setZ(poseOdomToMapmsg->pose.orientation.z);
+        q_tem.setW(poseOdomToMapmsg->pose.orientation.w);
+        tf::Vector3 p_tem(poseOdomToMapmsg->pose.position.x, poseOdomToMapmsg->pose.position.y, poseOdomToMapmsg->pose.position.z);
+
+        map_to_odom    = tf::Transform(q_tem, p_tem);
+
+    }
+
 
     void resetOptimization()
     {
@@ -120,7 +144,7 @@ public:
         doneFirstOpt = false;
         systemInitialized = false;
     }
-
+    //gc: the odometry computed by the mapoptimization module
     void odometryHandler(const nav_msgs::Odometry::ConstPtr& odomMsg)
     {
         double currentCorrectionTime = ROS_TIME(odomMsg);
@@ -166,17 +190,22 @@ public:
             }
             // initial pose
             prevPose_ = lidarPose.compose(lidar2Imu);
+            // 构造因子
             gtsam::PriorFactor<gtsam::Pose3> priorPose(X(0), prevPose_, priorPoseNoise);
+            //gc: add a factor
             graphFactors.add(priorPose);
+            // 构造因子
             // initial velocity
             prevVel_ = gtsam::Vector3(0, 0, 0);
             gtsam::PriorFactor<gtsam::Vector3> priorVel(V(0), prevVel_, priorVelNoise);
             graphFactors.add(priorVel);
             // initial bias
+            // 构造因子
             prevBias_ = gtsam::imuBias::ConstantBias();
             gtsam::PriorFactor<gtsam::imuBias::ConstantBias> priorBias(B(0), prevBias_, priorBiasNoise);
             graphFactors.add(priorBias);
             // add values
+            // gc: insert(key,初始值)
             graphValues.insert(X(0), prevPose_);
             graphValues.insert(V(0), prevVel_);
             graphValues.insert(B(0), prevBias_);
@@ -246,9 +275,11 @@ public:
         }
         // add imu factor to graph
         const gtsam::PreintegratedImuMeasurements& preint_imu = dynamic_cast<const gtsam::PreintegratedImuMeasurements&>(*imuIntegratorOpt_);
+        //gc:                       状态变量pose 状态变量velo  状态变量  状态变量   状态变量   measurement
         gtsam::ImuFactor imu_factor(X(key - 1), V(key - 1), X(key), V(key), B(key - 1), preint_imu);
         graphFactors.add(imu_factor);
         // add imu bias between factor
+        //gc: BetweenFactor illustrate the relationship between two state
         graphFactors.add(gtsam::BetweenFactor<gtsam::imuBias::ConstantBias>(B(key - 1), B(key), gtsam::imuBias::ConstantBias(),
                          gtsam::noiseModel::Diagonal::Sigmas(sqrt(imuIntegratorOpt_->deltaTij()) * noiseModelBetweenBias)));
         // add pose factor
@@ -257,6 +288,7 @@ public:
         graphFactors.add(pose_factor);
         // insert predicted values
         gtsam::NavState propState_ = imuIntegratorOpt_->predict(prevState_, prevBias_);
+        //gc: set the initial value
         graphValues.insert(X(key), propState_.pose());
         graphValues.insert(V(key), propState_.v());
         graphValues.insert(B(key), prevBias_);
@@ -292,6 +324,7 @@ public:
             imuQueImu.pop_front();
         }
         // repropogate
+        //gc: to get more correct imu_odom
         if (!imuQueImu.empty())
         {
             // reset bias use the newly optimized bias
@@ -337,7 +370,9 @@ public:
     {
         sensor_msgs::Imu thisImu = imuConverter(*imu_raw);
         // publish static tf
-        tfMap2Odom.sendTransform(tf::StampedTransform(map_to_odom, thisImu.header.stamp, mapFrame, odometryFrame));
+        //gc: the tf of map relative to odom  Todo: something can be done here to do localizaing in built map
+        //todo: noted by gc
+        tfMap2Odom.sendTransform(tf::StampedTransform(map_to_odom, thisImu.header.stamp, "map", "odom"));
 
         imuQueOpt.push_back(thisImu);
         imuQueImu.push_back(thisImu);
@@ -346,7 +381,7 @@ public:
             return;
 
         double imuTime = ROS_TIME(&thisImu);
-        double dt = (lastImuT_imu < 0) ? (1.0 / 500.0) : (imuTime - lastImuT_imu);
+        double dt = (lastImuT_imu < 0) ? (1.0 / 500.0) : (imuTime - lastImuT_imu);//gc: first IMU or parameter was reset
         lastImuT_imu = imuTime;
 
         // integrate this single imu message
@@ -354,12 +389,13 @@ public:
                                                 gtsam::Vector3(thisImu.angular_velocity.x,    thisImu.angular_velocity.y,    thisImu.angular_velocity.z), dt);
 
         // predict odometry
+        //gc: prevStateOdom is &
         gtsam::NavState currentState = imuIntegratorImu_->predict(prevStateOdom, prevBiasOdom);
 
         // publish odometry
         nav_msgs::Odometry odometry;
         odometry.header.stamp = thisImu.header.stamp;
-        odometry.header.frame_id = odometryFrame;
+        odometry.header.frame_id = "odom";
         odometry.child_frame_id = "odom_imu";
 
         // transform imu pose to ldiar
@@ -381,7 +417,7 @@ public:
         odometry.twist.twist.angular.y = thisImu.angular_velocity.y + prevBiasOdom.gyroscope().y();
         odometry.twist.twist.angular.z = thisImu.angular_velocity.z + prevBiasOdom.gyroscope().z();
         odometry.pose.covariance[0] = double(imuPreintegrationResetId);
-        pubImuOdometry.publish(odometry);
+        pubImuOdometry.publish(odometry);//gc: publish the state predicted by IMu
 
         // publish imu path
         static nav_msgs::Path imuPath;
@@ -391,7 +427,7 @@ public:
             last_path_time = imuTime;
             geometry_msgs::PoseStamped pose_stamped;
             pose_stamped.header.stamp = thisImu.header.stamp;
-            pose_stamped.header.frame_id = odometryFrame;
+            pose_stamped.header.frame_id = "odom";
             pose_stamped.pose = odometry.pose.pose;
             imuPath.poses.push_back(pose_stamped);
             while(!imuPath.poses.empty() && abs(imuPath.poses.front().header.stamp.toSec() - imuPath.poses.back().header.stamp.toSec()) > 3.0)
@@ -399,7 +435,7 @@ public:
             if (pubImuPath.getNumSubscribers() != 0)
             {
                 imuPath.header.stamp = thisImu.header.stamp;
-                imuPath.header.frame_id = odometryFrame;
+                imuPath.header.frame_id = "odom";
                 pubImuPath.publish(imuPath);
             }
         }
@@ -407,7 +443,7 @@ public:
         // publish transformation
         tf::Transform tCur;
         tf::poseMsgToTF(odometry.pose.pose, tCur);
-        tf::StampedTransform odom_2_baselink = tf::StampedTransform(tCur, thisImu.header.stamp, odometryFrame, lidarFrame);
+        tf::StampedTransform odom_2_baselink = tf::StampedTransform(tCur, thisImu.header.stamp, "odom", "base_link");
         tfOdom2BaseLink.sendTransform(odom_2_baselink);
     }
 };

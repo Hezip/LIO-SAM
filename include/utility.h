@@ -21,6 +21,7 @@
 #include <pcl/common/common.h>
 #include <pcl/common/transforms.h>
 #include <pcl/registration/icp.h>
+#include <pcl/registration/ndt.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
@@ -62,16 +63,10 @@ public:
 
     std::string robot_id;
 
-    //Topics
     string pointCloudTopic;
     string imuTopic;
     string odomTopic;
     string gpsTopic;
-
-    //Frames
-    string lidarFrame;
-    string odometryFrame;
-    string mapFrame;
 
     // GPS Settings
     bool useImuHeadingInitialization;
@@ -149,10 +144,6 @@ public:
         nh.param<std::string>("lio_sam/odomTopic", odomTopic, "odometry/imu");
         nh.param<std::string>("lio_sam/gpsTopic", gpsTopic, "odometry/gps");
 
-        nh.param<std::string>("lio_sam/lidarFrame", lidarFrame, "base_link");
-        nh.param<std::string>("lio_sam/odometryFrame", odometryFrame, "odom");
-        nh.param<std::string>("lio_sam/mapFrame", mapFrame, "map");
-
         nh.param<bool>("lio_sam/useImuHeadingInitialization", useImuHeadingInitialization, false);
         nh.param<bool>("lio_sam/useGpsElevation", useGpsElevation, false);
         nh.param<float>("lio_sam/gpsCovThreshold", gpsCovThreshold, 2.0);
@@ -212,7 +203,7 @@ public:
 
         usleep(100);
     }
-
+    //gc: tranform to lidar frame
     sensor_msgs::Imu imuConverter(const sensor_msgs::Imu& imu_in)
     {
         sensor_msgs::Imu imu_out = imu_in;

@@ -2,6 +2,7 @@
 #include "lio_sam/cloud_info.h"
 
 // Velodyne
+//PCL自定义点类型
 struct PointXYZIRT
 {
     PCL_ADD_POINT4D
@@ -49,10 +50,10 @@ private:
     ros::Publisher pubExtractedCloud;
     ros::Publisher pubLaserCloudInfo;
 
-    ros::Subscriber subImu;
+    ros::Subscriber subImu; //gc: IMU data
     std::deque<sensor_msgs::Imu> imuQueue;
 
-    ros::Subscriber subOdom;
+    ros::Subscriber subOdom;//gc: IMU pre-preintegration odometry
     std::deque<nav_msgs::Odometry> odomQueue;
 
     std::deque<sensor_msgs::PointCloud2> cloudQueue;
@@ -165,7 +166,7 @@ public:
         // cout << "IMU roll pitch yaw: " << endl;
         // cout << "roll: " << imuRoll << ", pitch: " << imuPitch << ", yaw: " << imuYaw << endl << endl;
     }
-
+    //gc: IMu prediction
     void odometryHandler(const nav_msgs::Odometry::ConstPtr& odometryMsg)
     {
         std::lock_guard<std::mutex> lock2(odoLock);
@@ -174,13 +175,13 @@ public:
 
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
     {
-        if (!cachePointCloud(laserCloudMsg))
+        if (!cachePointCloud(laserCloudMsg))//gc: cache pointclouds and make format-checking
             return;
 
-        if (!deskewInfo())
+        if (!deskewInfo())//gc:calculate to get the relative transformation betwwen the start of the scan and the time when the imu came
             return;
 
-        projectPointCloud();
+        projectPointCloud();//gc: deskew the pointcloud and project the pointcloud into one image
 
         cloudExtraction();
 
@@ -188,7 +189,7 @@ public:
 
         resetParameters();
     }
-
+    //gc: cashe pointclouds and make format-checking
     bool cachePointCloud(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg)
     {
         // cache point cloud
@@ -297,10 +298,11 @@ public:
             double currentImuTime = thisImuMsg.header.stamp.toSec();
 
             // get roll, pitch, and yaw estimation for this scan
+            //gc: not sychronized, something maybe should be done
             if (currentImuTime <= timeScanCur)
                 imuRPY2rosRPY(&thisImuMsg, &cloudInfo.imuRollInit, &cloudInfo.imuPitchInit, &cloudInfo.imuYawInit);
 
-            if (currentImuTime > timeScanNext + 0.01)
+            if (currentImuTime > timeScanNext + 0.01)//gc: integrate between this scan and next scan
                 break;
 
             if (imuPointerCur == 0){
@@ -407,10 +409,11 @@ public:
         tf::quaternionMsgToTF(endOdomMsg.pose.pose.orientation, orientation);
         tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
         Eigen::Affine3f transEnd = pcl::getTransformation(endOdomMsg.pose.pose.position.x, endOdomMsg.pose.pose.position.y, endOdomMsg.pose.pose.position.z, roll, pitch, yaw);
-
+        //gc: the relative transforme between the end snad  the start
         Eigen::Affine3f transBt = transBegin.inverse() * transEnd;
 
         float rollIncre, pitchIncre, yawIncre;
+        //gc: get the transform difference in the direction of X, Y and Z
         pcl::getTranslationAndEulerAngles(transBt, odomIncreX, odomIncreY, odomIncreZ, rollIncre, pitchIncre, yawIncre);
 
         odomDeskewFlag = true;
@@ -467,7 +470,7 @@ public:
         double pointTime = timeScanCur + relTime;
 
         float rotXCur, rotYCur, rotZCur;
-        findRotation(pointTime, &rotXCur, &rotYCur, &rotZCur);
+        findRotation(pointTime, &rotXCur, &rotYCur, &rotZCur);//gc: Interpolation to find the rotation of lidar relative the scan start
 
         float posXCur, posYCur, posZCur;
         findPosition(relTime, &posXCur, &posYCur, &posZCur);
@@ -512,7 +515,7 @@ public:
 
             float horizonAngle = atan2(thisPoint.x, thisPoint.y) * 180 / M_PI;
 
-            static float ang_res_x = 360.0/float(Horizon_SCAN);
+            static float ang_res_x = 360.0/float(Horizon_SCAN);//gc: resolution in the direction
             int columnIdn = -round((horizonAngle-90.0)/ang_res_x) + Horizon_SCAN/2;
             if (columnIdn >= Horizon_SCAN)
                 columnIdn -= Horizon_SCAN;
@@ -550,14 +553,14 @@ public:
         // extract segmented cloud for lidar odometry
         for (int i = 0; i < N_SCAN; ++i)
         {
-            cloudInfo.startRingIndex[i] = count - 1 + 5;
+            cloudInfo.startRingIndex[i] = count - 1 + 5;//gc: the start index of every ring
 
             for (int j = 0; j < Horizon_SCAN; ++j)
             {
                 if (rangeMat.at<float>(i,j) != FLT_MAX)
                 {
                     // mark the points' column index for marking occlusion later
-                    cloudInfo.pointColInd[count] = j;
+                    cloudInfo.pointColInd[count] = j;//gc: the colume index of every point
                     // save range info
                     cloudInfo.pointRange[count] = rangeMat.at<float>(i,j);
                     // save extracted cloud
@@ -566,14 +569,14 @@ public:
                     ++count;
                 }
             }
-            cloudInfo.endRingIndex[i] = count -1 - 5;
+            cloudInfo.endRingIndex[i] = count -1 - 5;//gc: the end index of every ring
         }
     }
     
     void publishClouds()
     {
         cloudInfo.header = cloudHeader;
-        cloudInfo.cloud_deskewed  = publishCloud(&pubExtractedCloud, extractedCloud, cloudHeader.stamp, lidarFrame);
+        cloudInfo.cloud_deskewed  = publishCloud(&pubExtractedCloud, extractedCloud, cloudHeader.stamp, "base_link");
         pubLaserCloudInfo.publish(cloudInfo);
     }
 };
